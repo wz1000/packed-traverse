@@ -24,6 +24,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 module Examples where
 

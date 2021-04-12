@@ -25,7 +25,7 @@ f n = sum (map ((2^)) [0..n-1]) + 9*(2^n)
 main :: IO ()
 main = do
   let n = 29
-      !l = f n
+      l = f n
   bs <- mmapFileByteString "tree" Nothing
   let t = tree n
       -- (bs,_) = unsafeWriteBuffer l (\wcur -> Res () (writeTree t wcur))
@@ -35,14 +35,14 @@ main = do
       --             copyTree rc wc & \(rc,wc) ->
       --               consumeCursor rc & \() ->
       --                 wc)
-  -- unsafeMMapWriteBuffer "tree-mmap" l (\wcur -> writeTree t wcur & \wcur -> consumeCursor wcur & \() -> Ur ())
+  -- unsafeMMapWriteBuffer "/tmp/tree-mmap" l (\wcur -> writeTree t wcur & \wcur -> consumeCursor wcur & \() -> Ur ())
   -- BS.writeFile "tree" bs
   -- print (bs' == bs)
-  print (sumBSTree bs)
+  -- print (sumBSTree bs)
   -- print (sumTreeSlow t')
   -- IO (\s -> case touch# t s of s' -> (# s', () #))
   -- print (BS.length bs)
   -- encodeFile "tree-bin" t
   -- t <- decodeFile "tree-bin"
-  -- print (sumTreeSlow t)
+  print (sumTreeSlow t)
 

@@ -45,13 +45,15 @@ import FastIndex
 import Debug.Trace
 import System.IO.MMap
 
+{-# INLINE readStorable #-}
 readStorable :: forall x xs. Storable x => RCursor (x ': xs) %1 -> Res x (RCursor xs)
-readStorable (Cursor ptr) = unsafePerformIO $ do
+readStorable (Cursor ptr) = unsafeDupablePerformIO $ do
   x <- peek (castPtr ptr)
   pure (Res x (Cursor (ptr `plusPtr` sizeOf x)))
 
+{-# INLINE readTaggedCons #-}
 readTaggedCons :: forall x xs cs xss. (SListI xss, cs ~ Constructors x, xss ~ Code x) => RCursor (x ': xs) %1 -> Branch cs xss (RStack xs)
-readTaggedCons (Cursor ptr) = unsafePerformIO $ do
+readTaggedCons (Cursor ptr) = unsafeDupablePerformIO $ do
   tag <- peek (castPtr ptr)
   let
     ptr'' :: Ptr Word8
@@ -63,7 +65,7 @@ readTaggedCons (Cursor ptr) = unsafePerformIO $ do
   else pure (UnsafeBranch tag (RStack (Cursor ptr'')))
 
 readTagged :: forall x xs xss. (Code x ~ xss,SListI xss) => RCursor (x ': xs) %1 -> NS (RStack xs) xss
-readTagged (Cursor ptr) = unsafePerformIO $ do
+readTagged (Cursor ptr) = unsafeDupablePerformIO $ do
   tag <- peek (castPtr ptr)
   let
     ptr' :: Ptr Word8
@@ -84,16 +86,16 @@ consumeCursor (Cursor _) = ()
 infixr 2 <|
 
 unsafeReadBuffer :: ByteString -> (RCursor xs %1 -> Ur a) -> a
-unsafeReadBuffer (PS fp st _) f = unsafePerformIO $ withForeignPtr fp $ \ptr ->
+unsafeReadBuffer (PS fp st _) f = unsafeDupablePerformIO $ withForeignPtr fp $ \ptr ->
   pure $! case f (Cursor (ptr `plusPtr` st)) of
     Ur x -> x
 
 unsafeReadBufferWith :: ByteString -> Cursor t xs %1 -> (Cursor t xs, RCursor ys)
-unsafeReadBufferWith (PS fp st _) (Cursor cur) = unsafePerformIO $ withForeignPtr fp $ \ptr ->
+unsafeReadBufferWith (PS fp st _) (Cursor cur) = unsafeDupablePerformIO $ withForeignPtr fp $ \ptr ->
   pure $! (Cursor cur, Cursor (ptr `plusPtr` st))
 
 writeStorable :: forall x xs. (Storable x, Show x) => x -> WCursor (x ': xs) %1 -> WCursor xs
-writeStorable x (Cursor ptr) = unsafePerformIO $ do
+writeStorable x (Cursor ptr) = unsafeDupablePerformIO $ do
   poke (castPtr ptr) x
   pure (Cursor (ptr `plusPtr` sizeOf x))
 
