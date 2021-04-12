@@ -37,13 +37,14 @@ import Prelude.Linear ((&))
 import Types
 import Cursor
 import Class
+import Data.Binary
 
 data Tree = Leaf Int | Node Tree Tree
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (Generic, HasDatatypeInfo)
+  deriving anyclass (Generic, HasDatatypeInfo, Binary)
 
-instance Serialize Tree
-instance Deserialize Tree
+-- instance Serialize Tree
+-- instance Deserialize Tree
 
 data Tree2 = Empty2 | Leaf2 Int | Node2 Int Tree2 Tree2
   deriving stock (Show, GHC.Generic)

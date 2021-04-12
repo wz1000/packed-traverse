@@ -22,7 +22,7 @@ maintainer:         zubin.duggal@gmail.com
 extra-source-files: CHANGELOG.md
 
 executable main
-    build-depends:    base,succinct, linear-base,bytestring
+    build-depends:    base,succinct, linear-base,bytestring, mmap, binary
     hs-source-dirs:   app
     main-is:          Main.hs
     default-language: Haskell2010
@@ -34,8 +34,8 @@ library
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
-    build-depends:    base, generics-sop == 0.5.1.1 , binary, bytestring, linear-base, sop-core
+    build-depends:    base, generics-sop == 0.5.1.1 , binary, bytestring, linear-base, sop-core, binary, mmap
     hs-source-dirs:   src
     exposed-modules:  Cursor, Types, Class, Examples, Index, FastIndex
     default-language: Haskell2010
-    ghc-options: -Wall -Wno-unticked-promoted-constructors -Wno-name-shadowing -O2
+    ghc-options: -Wall -Wno-unticked-promoted-constructors -Wno-name-shadowing -O2 -fexpose-all-unfoldings

@@ -35,7 +35,7 @@ import Data.SOP.Constraint
 
 import Foreign.Ptr
 
-import Index
+import FastIndex
 
 data Dir = Read | Write
 
@@ -63,5 +63,5 @@ brCase :: IdxB cs xs c x n -> (RCursor (x ++ ys) %p -> a) -> (Branch (Delete n c
 brCase i here there b = bCase i (\(RStack c) -> here c) there b
 
 brCase1 :: IdxB '[c] '[x] c x ZN -> (RCursor (x ++ ys) %p -> a) -> Branch '[c] '[x] (RStack ys) %p -> a
-brCase1 HereB here (This x) = (\(RStack a) -> here a) x
+brCase1 i here b = bCase1 i (\(RStack c) -> here c) b
 
