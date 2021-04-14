@@ -39,6 +39,7 @@ import System.IO.Unsafe
 import Data.Unrestricted.Linear
 import Data.ByteString.Internal
 import Prelude.Linear ((&))
+import qualified Unsafe.Linear as Unsafe
 
 import Types
 import FastIndex
@@ -85,14 +86,10 @@ consumeCursor (Cursor _) = ()
 
 infixr 2 <|
 
-unsafeReadBuffer :: ByteString -> (RCursor xs %1 -> Ur a) -> a
-unsafeReadBuffer (PS fp st _) f = unsafeDupablePerformIO $ withForeignPtr fp $ \ptr ->
+unsafeReadBuffer :: ByteString -> (RCursor xs %1 -> Ur a) %1 -> Ur a
+unsafeReadBuffer (PS fp st _) = Unsafe.toLinear (\f -> unsafeDupablePerformIO $ withForeignPtr fp $ \ptr ->
   pure $! case f (Cursor (ptr `plusPtr` st)) of
-    Ur x -> x
-
-unsafeReadBufferWith :: ByteString -> Cursor t xs %1 -> (Cursor t xs, RCursor ys)
-unsafeReadBufferWith (PS fp st _) (Cursor cur) = unsafeDupablePerformIO $ withForeignPtr fp $ \ptr ->
-  pure $! (Cursor cur, Cursor (ptr `plusPtr` st))
+    Ur x -> Ur x)
 
 writeStorable :: forall x xs. (Storable x, Show x) => x -> WCursor (x ': xs) %1 -> WCursor xs
 writeStorable x (Cursor ptr) = unsafeDupablePerformIO $ do
@@ -107,14 +104,14 @@ writeTaggedCons :: (cs ~ Constructors x, xss ~ Code x) => IdxB cs xss c ys n -> 
 writeTaggedCons (UnsafeIdxB i) (Cursor cur) = writeStorable i (Cursor cur) & \case
   Cursor ptr -> Cursor ptr
 
-unsafeWriteBuffer :: Int -> (WCursor xs %1 -> Res a (WCursor '[])) -> (ByteString, a)
-unsafeWriteBuffer size f = unsafeCreateUptoN' size $ \ptr ->
+unsafeWriteBuffer :: Int -> (WCursor xs %1 -> Res a (WCursor '[])) %1 -> (ByteString, a)
+unsafeWriteBuffer size = Unsafe.toLinear (\f -> unsafeCreateUptoN' size $ \ptr ->
   case f (Cursor ptr) of
     Res a (Cursor ptr') -> do
-      pure (ptr' `minusPtr` ptr, a)
+      pure (ptr' `minusPtr` ptr, a))
 
-unsafeMMapWriteBuffer :: FilePath -> Int -> (WCursor xs %1 -> Ur a) -> IO a
-unsafeMMapWriteBuffer fp i f = mmapWithFilePtr fp ReadWriteEx (Just (0,i)) $ \(ptr,_) ->
+unsafeMMapWriteBuffer :: FilePath -> Int -> (WCursor xs %1 -> Ur a) %1 -> IO a
+unsafeMMapWriteBuffer fp i = Unsafe.toLinear (\f -> mmapWithFilePtr fp ReadWriteEx (Just (0,i)) $ \(ptr,_) ->
   case f (Cursor (castPtr ptr)) of
-    Ur !a -> pure a
+    Ur !a -> pure a)
 

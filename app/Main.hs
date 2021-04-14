@@ -24,18 +24,18 @@ f n = sum (map ((2^)) [0..n-1]) + 9*(2^n)
 
 main :: IO ()
 main = do
-  let n = 29
+  let n = 25
       l = f n
   bs <- mmapFileByteString "tree" Nothing
   let t = tree n
       -- (bs,_) = unsafeWriteBuffer l (\wcur -> Res () (writeTree t wcur))
       -- t' = unsafeReadBuffer bs (\rcur -> readTree rcur & \(Res t rcur) -> consumeCursor rcur & \() -> Ur t)
-      -- (bs',_) = unsafeWriteBuffer l $ \wc ->
-      --   (Ur (), unsafeReadBufferWith bs wc & \(wc,rc) ->
-      --             copyTree rc wc & \(rc,wc) ->
-      --               consumeCursor rc & \() ->
-      --                 wc)
-  -- unsafeMMapWriteBuffer "/tmp/tree-mmap" l (\wcur -> writeTree t wcur & \wcur -> consumeCursor wcur & \() -> Ur ())
+  unsafeMMapWriteBuffer "tree-copy" l (\wc ->
+    unsafeReadBuffer bs (\rc ->
+      copyTree rc wc & \(rc,wc) ->
+        consumeCursor rc & \() ->
+          consumeCursor wc & \() -> Ur ()))
+  -- unsafeMMapWriteBuffer "tree" l (\wcur -> writeTree t wcur & \wcur -> consumeCursor wcur & \() -> Ur ())
   -- BS.writeFile "tree" bs
   -- print (bs' == bs)
   -- print (sumBSTree bs)
@@ -44,5 +44,5 @@ main = do
   -- print (BS.length bs)
   -- encodeFile "tree-bin" t
   -- t <- decodeFile "tree-bin"
-  print (sumTreeSlow t)
+  -- print (sumTreeSlow t)
 

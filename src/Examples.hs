@@ -86,6 +86,10 @@ readTree cur = readTaggedCons cur &
          Res l right -> readTree right & \case
            Res r end -> Res (Node l r) end)
 
+writeTreeInPlace :: Int -> WCursor (Tree ': xs) %1 -> WCursor xs
+writeTreeInPlace 0 cur = writeTaggedCons #_Leaf cur & writeStorable 1
+writeTreeInPlace n cur = writeTaggedCons #_Node cur & writeTreeInPlace (n-1) & writeTreeInPlace (n-1)
+
 writeTree :: Tree -> WCursor (Tree ': xs) %1 -> WCursor xs
 writeTree (Leaf i  ) cur = writeTaggedCons #_Leaf cur & writeStorable i
 writeTree (Node l r) cur = writeTaggedCons #_Node cur & writeTree l & writeTree r
@@ -112,8 +116,8 @@ sumTreeSlow = go 0
     go !acc (Node l r) = go (go acc l) r
 
 sumBSTree :: ByteString -> Int
-sumBSTree bs = unsafeReadBuffer bs $ \c -> sumTree c & \case
-  Res x r -> consumeCursor r & \() -> Ur x
+sumBSTree bs = unur (unsafeReadBuffer bs (\c -> sumTree c & \case
+  Res x r -> consumeCursor r & \() -> Ur x))
 
 tree :: Int -> Tree
 tree = go

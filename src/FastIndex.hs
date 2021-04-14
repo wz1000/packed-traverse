@@ -36,7 +36,7 @@ import Generics.SOP
 import qualified Generics.SOP.Type.Metadata as M
 import GHC.TypeLits hiding (Nat)
 import GHC.OverloadedLabels
-import Unsafe.Coerce
+import qualified Unsafe.Linear as Unsafe
 import GHC.Exts
 
 type family (++) (xs :: [k]) (ys :: [k]) :: [k] where
@@ -44,7 +44,7 @@ type family (++) (xs :: [k]) (ys :: [k]) :: [k] where
   (x ': xs) ++ ys = x ': (xs ++ ys)
 
 data Branch (cs :: [Symbol]) (xs :: [k]) (f :: k -> Type) where
-  UnsafeBranch :: !Word8 -> f x -> Branch cs xs f
+  UnsafeBranch :: !Word8 -> f x %1 -> Branch cs xs f
   -- This :: !(f x) %1 -> Branch (c ': cs) (x ': xs) f
   -- That :: !(Branch cs xs f) %1 -> Branch (c ': cs) (x ': xs) f
 
@@ -70,14 +70,14 @@ instance {-# OVERLAPPABLE #-} (xs ~ (_x ': xs'), n ~ (SN n'), LookupIdxB cs xs' 
 instance (cons' ~ AppendSymbol "_" c, LookupIdxB cs xs c x n) => IsLabel cons' (IdxB cs xs c x n) where
   fromLabel = lookupIdxB
 
-bCase :: IdxB cs xs c x n -> (f x %p -> (a :: TYPE r)) -> (Branch (Delete n cs) (Delete n xs) f %p -> a) -> Branch cs xs f %p -> a
+bCase :: IdxB cs xs c x n -> (f x %1 -> (a :: TYPE r)) -> (Branch (Delete n cs) (Delete n xs) f %1 -> a) -> Branch cs xs f %1 -> a
 bCase (UnsafeIdxB i) here there (UnsafeBranch j x) = case compare i j of
-  EQ -> here (unsafeCoerce x)
+  EQ -> here (Unsafe.coerce x)
   GT -> there (UnsafeBranch j x)
   LT -> there (UnsafeBranch (j-1) x)
 
-bCase1 :: IdxB '[c] '[x] c x ZN -> (f x %p -> (a :: TYPE r)) -> Branch '[c] '[x] f %p -> a
-bCase1 (UnsafeIdxB 0) here (UnsafeBranch 0 x) = here (unsafeCoerce x)
+bCase1 :: IdxB '[c] '[x] c x ZN -> (f x %1 -> (a :: TYPE r)) -> Branch '[c] '[x] f %1 -> a
+bCase1 (UnsafeIdxB 0) here (UnsafeBranch 0 x) = here (Unsafe.coerce x)
 bCase1 _ _ x = error "invalid branch" x
 
 data Idx (xs :: [k]) (x :: k) where

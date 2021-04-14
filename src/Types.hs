@@ -60,9 +60,9 @@ type family SameShape (xs :: [k1]) (ys :: [k2]) :: Constraint where
   SameShape '[] ys = (ys ~ '[])
   SameShape (x ': xs) ys = (ys ~ (Head ys ': Tail ys), SameShape xs (Tail ys))
 
-brCase :: IdxB cs xs c x n -> (RCursor (x ++ ys) %p -> (a :: TYPE r)) -> (Branch (Delete n cs) (Delete n xs) (RStack ys) %p -> a) -> Branch cs xs (RStack ys) %p -> a
+brCase :: IdxB cs xs c x n -> (RCursor (x ++ ys) %1 -> (a :: TYPE r)) -> (Branch (Delete n cs) (Delete n xs) (RStack ys) %1 -> a) -> Branch cs xs (RStack ys) %1 -> a
 brCase i here there b = bCase i (\(RStack c) -> here c) there b
 
-brCase1 :: IdxB '[c] '[x] c x ZN -> (RCursor (x ++ ys) %p -> (a :: TYPE r)) -> Branch '[c] '[x] (RStack ys) %p -> a
+brCase1 :: IdxB '[c] '[x] c x ZN -> (RCursor (x ++ ys) %1 -> (a :: TYPE r)) -> Branch '[c] '[x] (RStack ys) %1 -> a
 brCase1 i here b = bCase1 i (\(RStack c) -> here c) b
 
