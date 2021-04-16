@@ -44,7 +44,7 @@ type family (++) (xs :: [k]) (ys :: [k]) :: [k] where
   (x ': xs) ++ ys = x ': (xs ++ ys)
 
 data Branch (cs :: [Symbol]) (xs :: [k]) (f :: k -> Type) where
-  UnsafeBranch :: !Word8 -> f x %1 -> Branch cs xs f
+  UnsafeBranch :: !Word8 -> !(f x) %1 -> Branch cs xs f
   -- This :: !(f x) %1 -> Branch (c ': cs) (x ': xs) f
   -- That :: !(Branch cs xs f) %1 -> Branch (c ': cs) (x ': xs) f
 
@@ -70,42 +70,17 @@ instance {-# OVERLAPPABLE #-} (xs ~ (_x ': xs'), n ~ (SN n'), LookupIdxB cs xs' 
 instance (cons' ~ AppendSymbol "_" c, LookupIdxB cs xs c x n) => IsLabel cons' (IdxB cs xs c x n) where
   fromLabel = lookupIdxB
 
+{-# INLINE bCase #-}
 bCase :: IdxB cs xs c x n -> (f x %1 -> (a :: TYPE r)) -> (Branch (Delete n cs) (Delete n xs) f %1 -> a) -> Branch cs xs f %1 -> a
 bCase (UnsafeIdxB i) here there (UnsafeBranch j x) = case compare i j of
   EQ -> here (Unsafe.coerce x)
   GT -> there (UnsafeBranch j x)
   LT -> there (UnsafeBranch (j-1) x)
 
+{-# INLINE bCase1 #-}
 bCase1 :: IdxB '[c] '[x] c x ZN -> (f x %1 -> (a :: TYPE r)) -> Branch '[c] '[x] f %1 -> a
 bCase1 (UnsafeIdxB 0) here (UnsafeBranch 0 x) = here (Unsafe.coerce x)
 bCase1 _ _ x = error "invalid branch" x
-
-data Idx (xs :: [k]) (x :: k) where
-  Here :: Idx (x ': xs) x
-  There :: Idx xs x -> Idx (y ': xs) x
-
-idxToInt :: Idx xs x -> Int
-idxToInt = go 0
-  where
-    go :: Int -> Idx xs x -> Int
-    go acc Here = acc
-    go !acc (There xs) = go (acc+1) xs
-
-getIdx :: All c xs => Proxy c -> NS f xs -> (forall x. c x => Idx xs x -> f x -> a) -> a
-getIdx _ (Z x) f = f Here x
-getIdx p (S xs) f = getIdx p xs (\idx x -> f (There idx) x)
-
-data CtorIdx (a :: Type) (fs :: [Type]) where
-  CtorIdx :: Code a ~ xss => !(Idx xss fs) -> CtorIdx a fs
-
-class LookupIdx (conss :: [Symbol]) (cons :: Symbol) (xss :: [k]) (fs :: k) | conss cons xss -> fs where
-  lookupIdx :: Proxy conss -> Proxy cons -> Idx xss fs
-
-instance (xs ~ (y ':_xs)) => LookupIdx (cons ': conss) cons xs y where
-  lookupIdx _ _ = Here
-
-instance {-# OVERLAPPABLE #-} (xs ~ (_x ': xs'), LookupIdx conss cons xs' x) => LookupIdx (_cons ': conss) cons xs x where
-  lookupIdx _ _ = There (lookupIdx (Proxy @conss) (Proxy @cons))
 
 type family ConsInfos (x :: M.DatatypeInfo) :: [M.ConstructorInfo] where
   ConsInfos (M.ADT _ _ xs _) = xs
@@ -116,10 +91,3 @@ type family Constructors' (xs :: [M.ConstructorInfo]) :: [Symbol] where
   Constructors' (M.Infix cons _ _ ': xs) = cons : Constructors' xs
   Constructors' (M.Record cons _ ': xs) = cons : Constructors' xs
 type Constructors x = Constructors' (ConsInfos (DatatypeInfoOf x))
-
-instance ( HasDatatypeInfo a
-         , conss ~ Constructors a
-         , LookupIdx conss cons (Code a) fs
-         , cons' ~ AppendSymbol "_" cons
-         ) => IsLabel cons' (CtorIdx a fs) where
-  fromLabel = CtorIdx $ lookupIdx (Proxy @(Constructors a)) (Proxy @cons)
