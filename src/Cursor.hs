@@ -96,7 +96,9 @@ unsafeReadBuffer (PS fp st len) = Unsafe.toLinear (\f -> unsafeDupablePerformIO 
     Ur x -> Ur x)
 
 writeStorable :: forall x xs. (Storable x, Show x) => x -> WCursor (x ': xs) %1 -> WCursor xs
-writeStorable x (Cursor ptr end) = unsafeDupablePerformIO $ do
+writeStorable x (Cursor ptr end)
+  | ptr >= end = error "out of bounds"
+  | otherwise = unsafeDupablePerformIO $ do
   poke (castPtr ptr) x
   pure (Cursor (ptr `plusPtr` sizeOf x) end)
 
