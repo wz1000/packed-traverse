@@ -41,7 +41,7 @@ import GHC.Exts
 data Dir = Read | Write
 
 data Cursor (t :: Dir) (xs :: [Type]) where
-  Cursor :: !(Ptr Word8) -> Cursor t xs
+  Cursor :: {-# UNPACK #-} !(Ptr Word8) -> {-# UNPACK #-} !(Ptr Word8) -> Cursor t xs
 
 absurdNS :: forall a f. NS f '[] %1 -> a
 absurdNS = \case{}
@@ -54,7 +54,7 @@ newtype RStack (ys :: [Type]) (xs :: [Type]) where
 
 -- | Strict and non linear in a
 data Res a b where
-  Res :: a -> b %1 -> Res a b
+  Res :: !a -> b %1 -> Res a b
 
 type family SameShape (xs :: [k1]) (ys :: [k2]) :: Constraint where
   SameShape '[] ys = (ys ~ '[])

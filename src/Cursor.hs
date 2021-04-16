@@ -48,13 +48,17 @@ import System.IO.MMap
 
 {-# INLINE readStorable #-}
 readStorable :: forall x xs. Storable x => RCursor (x ': xs) %1 -> Res x (RCursor xs)
-readStorable (Cursor ptr) = unsafeDupablePerformIO $ do
+readStorable (Cursor ptr end)
+  | ptr >= end = error "out of bounds"
+  | otherwise = unsafeDupablePerformIO $ do
   x <- peek (castPtr ptr)
-  pure (Res x (Cursor (ptr `plusPtr` sizeOf x)))
+  pure (Res x (Cursor (ptr `plusPtr` sizeOf x) end))
 
 {-# INLINE readTaggedCons #-}
 readTaggedCons :: forall x xs cs xss. (SListI xss, cs ~ Constructors x, xss ~ Code x) => RCursor (x ': xs) %1 -> Branch cs xss (RStack xs)
-readTaggedCons (Cursor ptr) = unsafeDupablePerformIO $ do
+readTaggedCons (Cursor ptr end)
+  | ptr >= end = error "out of bounds"
+  | otherwise = unsafeDupablePerformIO $ do
   tag <- peek (castPtr ptr)
   let
     ptr'' :: Ptr Word8
@@ -63,23 +67,23 @@ readTaggedCons (Cursor ptr) = unsafeDupablePerformIO $ do
     msg = "exhausted alternatives in readTag, got " ++ show tag ++ ", expected " ++ show len
   if tag > len
   then error msg
-  else pure (UnsafeBranch tag (RStack (Cursor ptr'')))
+  else pure (UnsafeBranch tag (RStack (Cursor ptr'' end)))
 
-readTagged :: forall x xs xss. (Code x ~ xss,SListI xss) => RCursor (x ': xs) %1 -> NS (RStack xs) xss
-readTagged (Cursor ptr) = unsafeDupablePerformIO $ do
-  tag <- peek (castPtr ptr)
-  let
-    ptr' :: Ptr Word8
-    ptr' = ptr `plusPtr` sizeOf tag
-    loop :: forall ys. Int -> Shape ys -> NS (RStack xs) ys
-    loop _ ShapeNil       = error $ "exhausted alternatives in readTag, got " ++ show tag ++ ", expected " ++ show (lengthSList (Proxy @xss))
-    loop 0 (ShapeCons _ ) = Z (RStack (Cursor ptr'))
-    loop n (ShapeCons xs) = S (loop (n-1) xs)
+-- readTagged :: forall x xs xss. (Code x ~ xss,SListI xss) => RCursor (x ': xs) %1 -> NS (RStack xs) xss
+-- readTagged (Cursor ptr end) = unsafeDupablePerformIO $ do
+--   tag <- peek (castPtr ptr)
+--   let
+--     ptr' :: Ptr Word8
+--     ptr' = ptr `plusPtr` sizeOf tag
+--     loop :: forall ys. Int -> Shape ys -> NS (RStack xs) ys
+--     loop _ ShapeNil       = error $ "exhausted alternatives in readTag, got " ++ show tag ++ ", expected " ++ show (lengthSList (Proxy @xss))
+--     loop 0 (ShapeCons _ ) = Z (RStack (Cursor ptr' end))
+--     loop n (ShapeCons xs) = S (loop (n-1) xs)
 
-  pure $ loop tag shape
+--   pure $ loop tag shape
 
 consumeCursor :: Cursor t '[] %1 -> ()
-consumeCursor (Cursor _) = ()
+consumeCursor (Cursor _ _) = ()
 
 (<|) :: (a %p -> b) %q -> a %p -> b
 (<|) f x = f x
@@ -87,31 +91,31 @@ consumeCursor (Cursor _) = ()
 infixr 2 <|
 
 unsafeReadBuffer :: ByteString -> (RCursor xs %1 -> Ur a) %1 -> Ur a
-unsafeReadBuffer (PS fp st _) = Unsafe.toLinear (\f -> unsafeDupablePerformIO $ withForeignPtr fp $ \ptr ->
-  pure $! case f (Cursor (ptr `plusPtr` st)) of
+unsafeReadBuffer (PS fp st len) = Unsafe.toLinear (\f -> unsafeDupablePerformIO $ withForeignPtr fp $ \ptr ->
+  pure $! case f (Cursor (ptr `plusPtr` st) (ptr `plusPtr` len)) of
     Ur x -> Ur x)
 
 writeStorable :: forall x xs. (Storable x, Show x) => x -> WCursor (x ': xs) %1 -> WCursor xs
-writeStorable x (Cursor ptr) = unsafeDupablePerformIO $ do
+writeStorable x (Cursor ptr end) = unsafeDupablePerformIO $ do
   poke (castPtr ptr) x
-  pure (Cursor (ptr `plusPtr` sizeOf x))
+  pure (Cursor (ptr `plusPtr` sizeOf x) end)
 
-writeTagged :: Code x ~ xss => Idx xss ys -> WCursor (x ': xs) %1 -> WCursor (ys ++ xs)
-writeTagged idx (Cursor cur) = writeStorable (idxToInt idx) (Cursor cur) & \case
-  Cursor ptr -> Cursor ptr
+-- writeTagged :: Code x ~ xss => Idx xss ys -> WCursor (x ': xs) %1 -> WCursor (ys ++ xs)
+-- writeTagged idx (Cursor cur) = writeStorable (idxToInt idx) (Cursor cur) & \case
+--   Cursor ptr -> Cursor ptr
 
 writeTaggedCons :: (cs ~ Constructors x, xss ~ Code x) => IdxB cs xss c ys n -> WCursor (x ': xs) %1 -> WCursor (ys ++ xs)
-writeTaggedCons (UnsafeIdxB i) (Cursor cur) = writeStorable i (Cursor cur) & \case
-  Cursor ptr -> Cursor ptr
+writeTaggedCons (UnsafeIdxB i) (Cursor cur end) = writeStorable i (Cursor cur end) & \case
+  Cursor ptr end -> Cursor ptr end
 
 unsafeWriteBuffer :: Int -> (WCursor xs %1 -> Res a (WCursor '[])) %1 -> (ByteString, a)
 unsafeWriteBuffer size = Unsafe.toLinear (\f -> unsafeCreateUptoN' size $ \ptr ->
-  case f (Cursor ptr) of
-    Res a (Cursor ptr') -> do
+  case f (Cursor ptr (ptr `plusPtr` size)) of
+    Res a (Cursor ptr' _) -> do
       pure (ptr' `minusPtr` ptr, a))
 
 unsafeMMapWriteBuffer :: FilePath -> Int -> (WCursor xs %1 -> Ur a) %1 -> IO a
-unsafeMMapWriteBuffer fp i = Unsafe.toLinear (\f -> mmapWithFilePtr fp ReadWriteEx (Just (0,i)) $ \(ptr,_) ->
-  case f (Cursor (castPtr ptr)) of
+unsafeMMapWriteBuffer fp i = Unsafe.toLinear (\f -> mmapWithFilePtr fp ReadWriteEx (Just (0,i)) $ \(ptr,len) ->
+  case f (Cursor (castPtr ptr) (ptr `plusPtr` len)) of
     Ur !a -> pure a)
 
