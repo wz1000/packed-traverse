@@ -112,8 +112,7 @@ writeStorable x (Cursor ptr end new)
 
 {-# INLINE writeTaggedCons #-}
 writeTaggedCons :: (cs ~ Constructors x, xss ~ Code x) => IdxB cs xss c ys n -> WCursor (x ': xs) %1 -> WCursor (ys ++ xs)
-writeTaggedCons (UnsafeIdxB i) (Cursor cur end new) = writeStorable i (Cursor cur end new) & \case
-  Cursor ptr end new -> Cursor ptr end new
+writeTaggedCons (UnsafeIdxB i) (Cursor cur end new) = writeStorable i (Cursor cur end new) & Unsafe.coerce
 
 {-# INLINE unsafeWriteBuffer #-}
 unsafeWriteBuffer :: Int -> (WCursor xs %1 -> Res a (WCursor '[])) %1 -> (ByteString, a)
