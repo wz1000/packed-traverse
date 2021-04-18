@@ -46,16 +46,20 @@ import Unsafe.Coerce
 
 data Dir = Read | Write
 
-newtype Producer t = Producer (State# RealWorld -> (# Addr#, Addr#, Producer t #))
+newtype Producer t = Producer (State# RealWorld -> (# State# RealWorld, Addr#, Addr#, Producer t #))
 -- type Producer t = IORef (Cursor t Any)
 
 runProducer :: forall xs t. Producer t -> Cursor t xs
 runProducer (Producer p) = case runRW# p of
-  (# start, end, p' #) -> Cursor (Ptr start) (Ptr end) p'
+  (# _, start, end, p' #) -> Cursor (Ptr start) (Ptr end) p'
+
+runProducer' :: forall xs t. Producer t -> IO (Cursor t xs)
+runProducer' (Producer p) = IO $ \s -> case p s of
+  (# s', start, end, p' #) -> (# s', Cursor (Ptr start) (Ptr end) p' #)
 
 createProducer :: (forall xs. IO (Cursor t xs)) -> Producer t
 createProducer (IO f) = Producer $ \s -> case f s of
-  (# _ , Cursor (Ptr start) (Ptr end) p #) -> (# start, end, p #)
+  (# s', Cursor (Ptr start) (Ptr end) p #) -> (# s', start, end, p #)
 
 data Cursor (t :: Dir) (xs :: [Type]) where
   Cursor :: {-# UNPACK #-} !(Ptr Word8) -> {-# UNPACK #-} !(Ptr Word8) -> {-# UNPACK #-} !(Producer t) -> Cursor t xs

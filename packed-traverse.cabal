@@ -34,8 +34,8 @@ library
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
-    build-depends:    base, generics-sop == 0.5.1.1 , binary, bytestring, linear-base, sop-core, binary, mmap, reflection
+    build-depends:    base, generics-sop == 0.5.1.1 , binary, bytestring==0.11.1.0, linear-base, sop-core, binary, mmap, reflection
     hs-source-dirs:   src
     exposed-modules:  Cursor, Types, Class, Examples, Index, FastIndex
     default-language: Haskell2010
-    ghc-options: -Wall -Wno-unticked-promoted-constructors -Wno-name-shadowing -O2
+    ghc-options: -Wall -Wno-unticked-promoted-constructors -Wno-name-shadowing -flate-dmd-anal -fmax-simplifier-iterations=10 -fsimplifier-phases=4 -O2

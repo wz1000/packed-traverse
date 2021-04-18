@@ -33,6 +33,7 @@ import Generics.SOP
 
 import Data.Unrestricted.Linear
 import Data.ByteString.Internal
+import qualified Data.ByteString.Lazy as BSL
 import Prelude.Linear ((&))
 
 import Types
@@ -117,6 +118,10 @@ sumTreeSlow = go 0
 
 sumBSTree :: ByteString -> Int
 sumBSTree bs = unur (unsafeReadBuffer bs (\c -> sumTree c & \case
+  Res x r -> consumeCursor r & \() -> Ur x))
+
+sumBSTreeL :: BSL.ByteString -> Int
+sumBSTreeL bs = unur (unsafeReadLazyBuffer bs (\c -> sumTree c & \case
   Res x r -> consumeCursor r & \() -> Ur x))
 
 tree :: Int -> Tree

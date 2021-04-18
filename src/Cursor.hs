@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
@@ -24,6 +25,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 module Cursor where
 
@@ -34,54 +36,56 @@ import Generics.SOP
 import Foreign.Storable
 import Foreign.Ptr
 import Foreign.ForeignPtr
+import Foreign.ForeignPtr.Unsafe
+import Foreign.Marshal.Alloc
+import Foreign.Marshal.Utils
 
 import System.IO.Unsafe
 import Data.Unrestricted.Linear
 import Data.ByteString.Internal
+import qualified Data.ByteString.Lazy.Internal as BSL
+import qualified Data.ByteString.Lazy as BSL
 import Prelude.Linear ((&))
 import qualified Unsafe.Linear as Unsafe
+import GHC.Exts (touch#)
+import GHC.IO
 
 import Types
 import FastIndex
 import Debug.Trace
 import System.IO.MMap
+import Data.Bits
+import Data.IORef
+import Control.Monad
+import Control.Concurrent
+import Control.Concurrent.MVar
 
 {-# INLINE readStorable #-}
 readStorable :: forall x xs. Storable x => RCursor (x ': xs) %1 -> Res x (RCursor xs)
 readStorable (Cursor ptr end new)
-  | ptr >= end = go (runProducer new)
-  | otherwise = go (Cursor ptr end new)
-  where
-    go (Cursor ptr end new) = unsafeDupablePerformIO $ do
+  | rem < size = unsafeDupablePerformIO $ do
+      Cursor ptr' end' new' <- runProducer' new
+      let slop = size - rem
+      x <- allocaBytes size $ \temp -> do
+        copyBytes temp ptr rem
+        copyBytes (temp `plusPtr` rem) ptr' slop
+        peek (castPtr temp)
+      pure (Res x (Cursor (ptr' `plusPtr` slop) end' new'))
+  | otherwise = unsafeDupablePerformIO $ do
       x <- peek (castPtr ptr)
       pure (Res x (Cursor (ptr `plusPtr` sizeOf x) end new))
+  where
+    rem = end `minusPtr` ptr
+    size = sizeOf (undefined :: x)
 
 {-# INLINE readTaggedCons #-}
 readTaggedCons :: forall x xs cs xss. (SListI xss, cs ~ Constructors x, xss ~ Code x) => RCursor (x ': xs) %1 -> Branch cs xss (RStack xs)
-readTaggedCons (Cursor ptr end new)
-  | ptr >= end = go (runProducer @(x ': xs) new)
-  | otherwise = go (Cursor ptr end new)
+readTaggedCons (Cursor ptr end new) = readStorable (Cursor ptr end new) & \(Res tag (Cursor ptr end new)) ->
+  if tag >= len
+  then error $ "exhausted alternatives in readTag, got " ++ show tag ++ ", expected " ++ show len ++ " at " ++ show ptr
+  else UnsafeBranch tag (RStack (Cursor ptr end new))
   where
     len = fromIntegral (lengthSList (Proxy @xss))
-    go (Cursor ptr end new) = unsafeDupablePerformIO $ do
-      tag <- peek (castPtr ptr)
-      let msg = "exhausted alternatives in readTag, got " ++ show tag ++ ", expected " ++ show len
-      if tag > len
-      then error msg
-      else pure (UnsafeBranch tag (RStack (Cursor (ptr `plusPtr` sizeOf tag) end new)))
-
--- readTagged :: forall x xs xss. (Code x ~ xss,SListI xss) => RCursor (x ': xs) %1 -> NS (RStack xs) xss
--- readTagged (Cursor ptr end) = unsafeDupablePerformIO $ do
---   tag <- peek (castPtr ptr)
---   let
---     ptr' :: Ptr Word8
---     ptr' = ptr `plusPtr` sizeOf tag
---     loop :: forall ys. Int -> Shape ys -> NS (RStack xs) ys
---     loop _ ShapeNil       = error $ "exhausted alternatives in readTag, got " ++ show tag ++ ", expected " ++ show (lengthSList (Proxy @xss))
---     loop 0 (ShapeCons _ ) = Z (RStack (Cursor ptr' end))
---     loop n (ShapeCons xs) = S (loop (n-1) xs)
-
---   pure $ loop tag shape
 
 consumeCursor :: Cursor t '[] %1 -> ()
 consumeCursor (Cursor _ _ _) = ()
@@ -92,27 +96,48 @@ consumeCursor (Cursor _ _ _) = ()
 infixr 2 <|
 
 unsafeReadBuffer :: ByteString -> (RCursor xs %1 -> Ur a) %1 -> Ur a
-unsafeReadBuffer (PS fp st len) = Unsafe.toLinear (\f -> unsafeDupablePerformIO $ withForeignPtr fp $ \ptr ->
-  pure $! case f (Cursor (ptr `plusPtr` st) (ptr `plusPtr` len) (createProducer $ pure undefined)) of
-    Ur x -> Ur x)
+unsafeReadBuffer (BS fp len) = Unsafe.toLinear (\f -> unsafeDupablePerformIO $ withForeignPtr fp $ \ptr ->
+  pure $! case f (Cursor ptr (ptr `plusPtr` len) (createProducer $ pure undefined)) of
+    Ur !x -> Ur x)
+
+unsafeReadLazyBuffer :: BSL.ByteString -> (RCursor xs %1 -> Ur a) %1 -> Ur a
+unsafeReadLazyBuffer bs f = f (runProducer prod) & \case
+    Ur !x -> Ur x
+  where
+    prod = go (pure ()) bs
+    go prev BSL.Empty = createProducer $ do
+      prev
+      pure $ error "tried to read from empty bytestring"
+    go prev (BSL.Chunk (BS fp len) xs) = createProducer $ do
+        prev
+        let ptr = unsafeForeignPtrToPtr fp
+            finalize = touchForeignPtr fp
+        pure (Cursor ptr (ptr `plusPtr` len) (go finalize xs))
 
 {-# INLINE writeStorable #-}
 writeStorable :: forall x xs. (Storable x, Show x) => x -> WCursor (x ': xs) %1 -> WCursor xs
 writeStorable x (Cursor ptr end new)
-  | ptr >= end = go (runProducer new)
-  | otherwise = go (Cursor ptr end new)
-  where
-    go (Cursor ptr end new) = unsafeDupablePerformIO $ do
-      poke (castPtr ptr) x
-      pure (Cursor (ptr `plusPtr` sizeOf x) end new)
+  | rem < size = unsafeDupablePerformIO $ do
+      Cursor ptr' end' new' <- runProducer' new
+      let slop = size - rem
+      allocaBytes size $ \temp -> do
+        poke (castPtr temp) x
+        copyBytes ptr temp rem
+        copyBytes ptr' (temp `plusPtr` rem) slop
+      pure (Cursor (ptr' `plusPtr` slop) end' new')
 
--- writeTagged :: Code x ~ xss => Idx xss ys -> WCursor (x ': xs) %1 -> WCursor (ys ++ xs)
--- writeTagged idx (Cursor cur) = writeStorable (idxToInt idx) (Cursor cur) & \case
---   Cursor ptr -> Cursor ptr
+  | otherwise = unsafeDupablePerformIO $ do
+      poke (castPtr ptr) x
+      pure (Cursor (ptr `plusPtr` size) end new)
+  where
+    rem = end `minusPtr` ptr
+    size = sizeOf x
+
 
 {-# INLINE writeTaggedCons #-}
 writeTaggedCons :: (cs ~ Constructors x, xss ~ Code x) => IdxB cs xss c ys n -> WCursor (x ': xs) %1 -> WCursor (ys ++ xs)
-writeTaggedCons (UnsafeIdxB i) (Cursor cur end new) = writeStorable i (Cursor cur end new) & Unsafe.coerce
+writeTaggedCons (UnsafeIdxB i) (Cursor cur end new) = writeStorable i (Cursor cur end new) & \case
+  Cursor ptr end new -> Cursor ptr end new
 
 {-# INLINE unsafeWriteBuffer #-}
 unsafeWriteBuffer :: Int -> (WCursor xs %1 -> Res a (WCursor '[])) %1 -> (ByteString, a)
@@ -120,6 +145,45 @@ unsafeWriteBuffer size = Unsafe.toLinear (\f -> unsafeCreateUptoN' size $ \ptr -
   case f (Cursor ptr (ptr `plusPtr` size) (createProducer $ pure undefined)) of
     Res a (Cursor ptr' _ _) -> do
       pure (ptr' `minusPtr` ptr, a))
+
+{-# NOINLINE unsafeWriteBufferChunked #-}
+unsafeWriteBufferChunked :: Int -> (ByteString -> IO ()) -> (WCursor xs %1 -> (Ur a, WCursor '[])) -> IO a
+unsafeWriteBufferChunked chunksize k f = do
+  let prod prev = createProducer $ do
+        prev
+        fp <- mallocByteString chunksize
+        let ptr = unsafeForeignPtrToPtr fp
+            ptr' = ptr `plusPtr` chunksize
+            prev' = k (BS fp chunksize)
+        pure (Cursor ptr ptr' (prod prev'))
+  case f (runProducer (prod (pure ()))) of
+    (Ur x,Cursor ptr end prod') -> do
+      when (ptr < end) $ do
+        let start = end `plusPtr` (negate chunksize)
+            size = ptr `minusPtr` start
+        last <- create size (\dest -> copyBytes dest start size)
+        k last
+        IO (\s -> case touch# prod' s of s' -> (# s', () #))
+      pure x
+
+data Proc a = Chunk ByteString | Done a
+
+{-# NOINLINE writeBufferLazy #-}
+writeBufferLazy :: Int -> (WCursor xs %1 -> (Ur a, WCursor '[])) -> (BSL.ByteString, a)
+writeBufferLazy n f = unsafePerformIO $ do
+  chan <- newEmptyMVar
+  _ <- forkIO $ do
+    a <- unsafeWriteBufferChunked n (putMVar chan . Chunk) f
+    putMVar chan (Done a)
+  go chan
+  where
+    go chan = do
+      x <- takeMVar chan
+      case x of
+        Done a -> pure (BSL.Empty,a)
+        Chunk bs -> do
+          ~(rest,a) <- unsafeInterleaveIO (go chan)
+          pure (BSL.Chunk bs rest, a)
 
 unsafeMMapWriteBuffer :: FilePath -> Int -> (WCursor xs %1 -> Ur a) %1 -> IO a
 unsafeMMapWriteBuffer fp i = Unsafe.toLinear (\f -> mmapWithFilePtr fp ReadWriteEx (Just (0,i)) $ \(ptr,len) ->
