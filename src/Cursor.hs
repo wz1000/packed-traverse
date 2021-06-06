@@ -89,7 +89,7 @@ writeSkippable (Cursor ptr end new) f
 writeSkippable' :: (WCursor (x ': xs) %1 -> WCursor xs) %1 -> WCursor (Skippable x ': xs) %1 ->  WCursor xs
 writeSkippable' f (Cursor ptr end new)
   = f (Cursor (ptr `plusPtr` sizeOf (undefined :: Int)) end new) & \(Cursor ptr' end' new') -> unsafeDupablePerformIO $ do
-      poke (castPtr ptr) (ptr' `minusPtr` ptr)
+      poke (castPtr ptr) (ptr' `minusPtr` (ptr `plusPtr` sizeOf (undefined :: Int)))
       pure (Cursor ptr' end' new')
 
 {-# INLINE readStorable #-}
