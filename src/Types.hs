@@ -33,36 +33,44 @@ import Data.Kind
 import Data.Word
 
 import Generics.SOP
-import Data.SOP.Constraint
 
 import Foreign.Ptr
 
 import FastIndex
 import GHC.Exts
+import GHC.Types
 import GHC.IO
-import GHC.IORef
-import GHC.Ptr
-import Unsafe.Coerce
+import Control.Monad
+import GHC.Int
 
 data Dir = Read | Write
 
-newtype Producer t = Producer (State# RealWorld -> (# State# RealWorld, Addr#, Addr#, Producer t #))
--- type Producer t = IORef (Cursor t Any)
+data Producer t
+  = Producer
+  { flushProducer :: {-# UNPACK #-} !(IO ()) -- ^ flush the current buffer
+  , getNext :: !(forall xs. Int# -> IO (Cursor t xs))
+    -- ^ get the next chunk of the buffer, with at least the given size: Important to flush the buffer before calling this function
+  }
 
+emptyProducer :: Producer t
+emptyProducer = Producer (pure ()) (\_ -> pure (error "empty producer"))
+
+{-# INLINE runProducer #-}
 runProducer :: forall xs t. Producer t -> Cursor t xs
-runProducer (Producer p) = case runRW# p of
-  (# _, start, end, p' #) -> Cursor (Ptr start) (Ptr end) p'
+runProducer = unsafePerformIO . runProducer' 0
 
-runProducer' :: forall xs t. Producer t -> IO (Cursor t xs)
-runProducer' (Producer p) = IO $ \s -> case p s of
-  (# s', start, end, p' #) -> (# s', Cursor (Ptr start) (Ptr end) p' #)
+{-# INLINE runProducer' #-}
+runProducer' :: forall xs t. Int64 -> Producer t -> IO (Cursor t xs)
+runProducer' (I64# s) p = do
+  flushProducer p
+  getNext p s
 
-createProducer :: (forall xs. IO (Cursor t xs)) -> Producer t
-createProducer (IO f) = Producer $ \s -> case f s of
-  (# s', Cursor (Ptr start) (Ptr end) p #) -> (# s', start, end, p #)
+{-# INLINE createProducer #-}
+createProducer :: IO () -> (forall xs. Int# -> IO (Cursor t xs)) -> Producer t
+createProducer = Producer
 
 data Cursor (t :: Dir) (xs :: [Type]) where
-  Cursor :: {-# UNPACK #-} !(Ptr Word8) -> {-# UNPACK #-} !(Ptr Word8) -> {-# UNPACK #-} !(Producer t) -> Cursor t xs
+  Cursor :: {-# UNPACK #-} !(Ptr Word8) -> {-# UNPACK #-} !(Ptr Word8) -> {-# NOUNPACK #-} !(Producer t) -> Cursor t xs
 
 absurdNS :: forall a f. NS f '[] %1 -> a
 absurdNS = \case{}
@@ -76,10 +84,6 @@ newtype RStack (ys :: [Type]) (xs :: [Type]) where
 -- | Strict and non linear in a
 data Res a b where
   Res :: !a -> b %1 -> Res a b
-
-type family SameShape (xs :: [k1]) (ys :: [k2]) :: Constraint where
-  SameShape '[] ys = (ys ~ '[])
-  SameShape (x ': xs) ys = (ys ~ (Head ys ': Tail ys), SameShape xs (Tail ys))
 
 {-# INLINE brCase #-}
 brCase :: IdxB cs xs c x n -> (RCursor (x ++ ys) %1 -> (a :: TYPE r)) -> (Branch (Delete n cs) (Delete n xs) (RStack ys) %1 -> a) -> Branch cs xs (RStack ys) %1 -> a
