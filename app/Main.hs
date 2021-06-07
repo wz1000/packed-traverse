@@ -18,6 +18,7 @@ import GHC.Exts
 import GHC.IO
 import System.IO.MMap
 import Data.Binary
+import Data.Binary.Put
 import System.Directory
 
 import Criterion.Main
@@ -92,6 +93,7 @@ main = defaultMain
       ,("lazy-indirect"  ,writeBSSInDirect)
       ,("strict-indirect",writeBSSInDirect)
       ,("binary-indirect",writeBinaryInDirect)
+      ,("binary-direct"  ,writeBinaryDirect)
       ]
     sumBenchs =
       [("mmap"   ,sumMMap)
@@ -160,6 +162,12 @@ writeBSSInDirect fp n = do
 
 writeBinaryInDirect :: FilePath -> Int -> IO ()
 writeBinaryInDirect fp n = encodeFile fp (tree n)
+
+writeBinaryDirect :: FilePath -> Int -> IO ()
+writeBinaryDirect fp n = BSL.writeFile fp $ runPut $ putTree n
+  where
+    putTree 0 = putWord8 0 >> putInthost 1
+    putTree n = putWord8 0 >> putTree (n-1) >> putTree (n-1)
 
 -- Sum
 
